@@ -60,7 +60,7 @@ jobs:
       run: |
         echo "## 🌐 Streamlit Cloud Deployment" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**Repository:** samsaminfohub/SAMVI" >> $GITHUB_STEP_SUMMARY
+        echo "**Repository:** samsaminfohub/SAMVI-INC" >> $GITHUB_STEP_SUMMARY
         echo "**Branch:** main" >> $GITHUB_STEP_SUMMARY
         echo "**Main file:** src/app_claude.py" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
