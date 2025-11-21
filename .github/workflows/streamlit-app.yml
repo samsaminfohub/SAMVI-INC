@@ -53,38 +53,3 @@ jobs:
         
         kill $STREAMLIT_PID 2>/dev/null || true
       continue-on-error: true
-    
-    - name: Deployment summary
-      if: always()
-      run: |
-        echo "## 🚀 SAMVI Build Summary" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**Python:** $(python --version)" >> $GITHUB_STEP_SUMMARY
-        echo "**Streamlit:** $(streamlit --version)" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        if [ -n "${{ secrets.ANTHROPIC_API_KEY }}" ]; then
-          echo "✅ ANTHROPIC_API_KEY configured" >> $GITHUB_STEP_SUMMARY
-        else
-          echo "❌ ANTHROPIC_API_KEY missing" >> $GITHUB_STEP_SUMMARY
-        fi
-
-  deploy-info:
-    needs: test-and-deploy
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    
-    steps:
-    - name: Deployment instructions
-      run: |
-        echo "## 🌐 Streamlit Cloud Deployment" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**Repository:** samsaminfohub/SAMVI" >> $GITHUB_STEP_SUMMARY
-        echo "**Branch:** main" >> $GITHUB_STEP_SUMMARY
-        echo "**Main file:** src/app_claude.py" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**Secret required:**" >> $GITHUB_STEP_SUMMARY
-        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-        echo "ANTHROPIC_API_KEY = \"your_key_here\"" >> $GITHUB_STEP_SUMMARY
-        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "🔗 https://share.streamlit.io/" >> $GITHUB_STEP_SUMMARY
