@@ -54,5 +54,20 @@ jobs:
     needs: test-and-deploy
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    steps:
+    - name: Deployment instructions
+      run: |
+        echo "## 🌐 Streamlit Cloud Deployment" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Repository:** samsaminfohub/SAMVI" >> $GITHUB_STEP_SUMMARY
+        echo "**Branch:** main" >> $GITHUB_STEP_SUMMARY
+        echo "**Main file:** src/app_claude.py" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Secret required:**" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        echo "ANTHROPIC_API_KEY = \"your_key_here\"" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
        
         
