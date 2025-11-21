@@ -28,28 +28,9 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
     
-    - name: Create .env file
-      run: |
-        echo "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}" > src/.env
-    
          
-    - name: Start Streamlit app (health check)
+    - name: Start Streamlit app
       run: |
         cd src
-        streamlit run app_claude.py --server.headless true --server.port 8501 &
-        STREAMLIT_PID=$!
+        streamlit run app_claude.py
         
-        # Attendre le démarrage (max 30s)
-        for i in {1..30}; do
-          if curl -s http://localhost:8501/_stcore/health > /dev/null 2>&1; then
-            echo "✓ App is running"
-            break
-          fi
-          sleep 1
-        done
-        
-        # Health check
-        curl -f http://localhost:8501/_stcore/health || echo "⚠ Health check failed"
-        
-        kill $STREAMLIT_PID 2>/dev/null || true
-      continue-on-error: true
