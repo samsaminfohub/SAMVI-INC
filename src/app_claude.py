@@ -184,7 +184,7 @@ def chat_llm(rag_chain, user_input):
 def main():
     # Title and description
     st.title("🏥 Healthcare IT Support Chatbot")
-    st.markdown("*Powered by Claude AI (Anthropic)*")
+    st.markdown("*Powered by SAMVI-INC*")
     
     # Sidebar
     with st.sidebar:
