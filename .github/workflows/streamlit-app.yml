@@ -50,7 +50,9 @@ jobs:
         kill $STREAMLIT_PID 2>/dev/null || true
       continue-on-error: true
       
-  deploy-streamlit-cloud:
-    if: github.ref == 'refs/heads/main' && true
+  deploy-info:
+    needs: test-and-deploy
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
        
         
