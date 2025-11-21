@@ -25,3 +25,8 @@ python-dotenv>=1.0.0
 numpy>=1.24.0
 pandas>=2.0.0
 typing-extensions>=4.5.0
+
+# Infrastructure & Monitoring
+minio>=7.2.0
+evidently>=0.4.0
+watchdog>=3.0.0

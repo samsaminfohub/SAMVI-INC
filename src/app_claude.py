@@ -19,6 +19,14 @@ from langchain_community.document_loaders import PyMuPDFLoader
 from pathlib import Path
 from dotenv import load_dotenv
 import os
+import shutil
+from utils.minio_client import MinioHandler
+#from evidently.report import Report
+#from evidently.metric_preset import TextEvals
+#from evidently.test_suite import TestSuite
+#from evidently.tests import TestNumberOfMissingValues
+import pandas as pd
+import datetime
 
 # Load environment variables
 load_dotenv()
@@ -57,19 +65,48 @@ def extract_text_pdf(file_path):
 
 @st.cache_resource
 def config_retriever(folder_path="../documents"):
-    """Configure retriever with document indexing"""
+    """Configure retriever with document indexing from MinIO"""
     
-    with st.spinner("Loading and indexing documents..."):
-        # Load PDF files
-        docs_path = Path(folder_path)
-        pdf_files = [f for f in docs_path.glob("*.pdf")]
+    with st.spinner("Loading and indexing documents from MinIO..."):
+        # Initialize MinIO
+        minio_client = MinioHandler()
+        minio_client.ensure_bucket_exists()
+        
+        # List files from MinIO
+        pdf_files = minio_client.list_files()
         
         if not pdf_files:
-            st.error(f"No PDF files found in {folder_path}")
+            st.warning(f"No PDF files found in MinIO bucket '{minio_client.bucket_name}'. Checking local folder...")
+            # Fallback to local folder if MinIO is empty (useful for first run)
+            local_path = Path(folder_path)
+            if local_path.exists():
+                local_pdfs = list(local_path.glob("*.pdf"))
+                if local_pdfs:
+                    st.info(f"Found {len(local_pdfs)} local files. Uploading to MinIO...")
+                    for pdf in local_pdfs:
+                        minio_client.upload_file(str(pdf), pdf.name)
+                    pdf_files = minio_client.list_files()
+        
+        if not pdf_files:
+            st.error("No documents found in MinIO or local folder.")
             return None
+            
+        # Download files to temporary directory for processing
+        temp_dir = Path("temp_docs")
+        if temp_dir.exists():
+            shutil.rmtree(temp_dir)
+        temp_dir.mkdir(exist_ok=True)
         
-        loaded_documents = [extract_text_pdf(pdf) for pdf in pdf_files]
+        loaded_documents = []
+        for pdf_file in pdf_files:
+            local_file_path = temp_dir / pdf_file
+            if minio_client.download_file(pdf_file, str(local_file_path)):
+                loaded_documents.append(extract_text_pdf(str(local_file_path)))
         
+        if not loaded_documents:
+            st.error("Failed to load documents.")
+            return None
+
         # Split documents
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000,
@@ -93,7 +130,10 @@ def config_retriever(folder_path="../documents"):
             search_kwargs={'k': 3, 'fetch_k': 4}
         )
         
-        st.success(f"✓ Indexed {len(pdf_files)} documents with {len(chunks)} chunks")
+        st.success(f"✓ Indexed {len(pdf_files)} documents from MinIO with {len(chunks)} chunks")
+        
+        # Cleanup temp dir
+        # shutil.rmtree(temp_dir) # Keep for debugging or caching if needed
         
     return retriever
 
@@ -174,7 +214,27 @@ def chat_llm(rag_chain, user_input):
     st.session_state.chat_history.append(HumanMessage(content=user_input))
     st.session_state.chat_history.append(AIMessage(content=response))
     
+    # Log to Evidently (Simple logging for now)
+    log_to_evidently(user_input, response)
+    
     return response
+
+def log_to_evidently(user_input, response):
+    """Log interactions for Evidently monitoring"""
+    # In a real scenario, you might append this to a CSV or send to a service
+    # For this demo, we'll just ensure the directory exists
+    log_dir = Path("logs")
+    log_dir.mkdir(exist_ok=True)
+    
+    data = {
+        "timestamp": datetime.datetime.now().isoformat(),
+        "user_input": user_input,
+        "response": response
+    }
+    # Append to a JSONL file or similar
+    import json
+    with open(log_dir / "interactions.jsonl", "a") as f:
+        f.write(json.dumps(data) + "\n")
 
 
 # ============================================================================
