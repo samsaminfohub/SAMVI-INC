@@ -20,7 +20,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 import os
 import shutil
-from utils.minio_client import MinioHandler
+import subprocess
+# from utils.minio_client import MinioHandler # Removed in favor of DVC
 #from evidently.report import Report
 #from evidently.metric_preset import TextEvals
 #from evidently.test_suite import TestSuite
@@ -64,44 +65,43 @@ def extract_text_pdf(file_path):
 
 
 @st.cache_resource
-def config_retriever(folder_path="../documents"):
-    """Configure retriever with document indexing from MinIO"""
+def config_retriever(folder_path="documents"):
+    """Configure retriever with document indexing using DVC"""
     
-    with st.spinner("Loading and indexing documents from MinIO..."):
-        # Initialize MinIO
-        minio_client = MinioHandler()
-        minio_client.ensure_bucket_exists()
+    with st.spinner("Syncing documents with DVC..."):
+        try:
+            # Run DVC pull to get the latest files from MinIO
+            # We assume DVC is already initialized and configured in the container
+            result = subprocess.run(
+                ["dvc", "pull"], 
+                capture_output=True, 
+                text=True, 
+                check=False
+            )
+            if result.returncode == 0:
+                st.success("✓ DVC Pull successful")
+            else:
+                st.warning(f"DVC Pull warning: {result.stderr}")
+                
+        except FileNotFoundError:
+            st.error("DVC not found. Please ensure dvc is installed.")
+        except Exception as e:
+            st.error(f"Error running DVC: {e}")
+
+    with st.spinner("Loading and indexing documents..."):
+        # Load PDF files from local folder (now populated by DVC)
+        docs_path = Path(folder_path)
         
-        # List files from MinIO
-        pdf_files = minio_client.list_files()
+        # Create directory if it doesn't exist (DVC might create it, but just in case)
+        docs_path.mkdir(exist_ok=True)
+        
+        pdf_files = [f for f in docs_path.glob("*.pdf")]
         
         if not pdf_files:
-            st.warning(f"No PDF files found in MinIO bucket '{minio_client.bucket_name}'. Checking local folder...")
-            # Fallback to local folder if MinIO is empty (useful for first run)
-            local_path = Path(folder_path)
-            if local_path.exists():
-                local_pdfs = list(local_path.glob("*.pdf"))
-                if local_pdfs:
-                    st.info(f"Found {len(local_pdfs)} local files. Uploading to MinIO...")
-                    for pdf in local_pdfs:
-                        minio_client.upload_file(str(pdf), pdf.name)
-                    pdf_files = minio_client.list_files()
-        
-        if not pdf_files:
-            st.error("No documents found in MinIO or local folder.")
+            st.warning(f"No PDF files found in {folder_path}. Please add files and run 'dvc add' & 'dvc push'.")
             return None
-            
-        # Download files to temporary directory for processing
-        temp_dir = Path("temp_docs")
-        if temp_dir.exists():
-            shutil.rmtree(temp_dir)
-        temp_dir.mkdir(exist_ok=True)
         
-        loaded_documents = []
-        for pdf_file in pdf_files:
-            local_file_path = temp_dir / pdf_file
-            if minio_client.download_file(pdf_file, str(local_file_path)):
-                loaded_documents.append(extract_text_pdf(str(local_file_path)))
+        loaded_documents = [extract_text_pdf(str(pdf)) for pdf in pdf_files]
         
         if not loaded_documents:
             st.error("Failed to load documents.")
@@ -130,10 +130,7 @@ def config_retriever(folder_path="../documents"):
             search_kwargs={'k': 3, 'fetch_k': 4}
         )
         
-        st.success(f"✓ Indexed {len(pdf_files)} documents from MinIO with {len(chunks)} chunks")
-        
-        # Cleanup temp dir
-        # shutil.rmtree(temp_dir) # Keep for debugging or caching if needed
+        st.success(f"✓ Indexed {len(pdf_files)} documents with {len(chunks)} chunks")
         
     return retriever
 
@@ -286,7 +283,7 @@ def main():
         st.divider()
         
         # Document folder
-        doc_folder = st.text_input("Documents Folder:", value="./documents")
+        doc_folder = st.text_input("Documents Folder:", value="documents")
         
         if st.button("🔄 Reload Documents"):
             st.cache_resource.clear()
