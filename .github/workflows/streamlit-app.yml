@@ -61,13 +61,13 @@ jobs:
 
     - name: Build and Start Services
       run: |
-        docker compose up -d --build
+        sudo docker-compose up -d --build
         
     - name: Wait for Services
       run: |
         echo "Waiting for services to start..."
         sleep 30
-        docker compose ps
+        sudo docker-compose ps
         
     - name: Test App Health
       run: |
@@ -75,7 +75,7 @@ jobs:
         
     - name: Stop Services
       if: always()
-      run: docker compose down
+      run: sudo docker-compose down
       
   deploy-info:
     needs: [test-and-deploy, docker-build-test]
