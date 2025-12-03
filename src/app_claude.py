@@ -247,7 +247,7 @@ def log_to_evidently(user_input, response):
         os.makedirs(logs_dir, exist_ok=True)
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         file_path = os.path.join(logs_dir, f"evidently_report_{timestamp}.html")
-        report.save_html(file_path)
+        report.save(file_path)
         print(f"Successfully saved Evidently report to {file_path}")
         
     except Exception as e:
