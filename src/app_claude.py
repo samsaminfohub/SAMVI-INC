@@ -231,10 +231,14 @@ def log_to_evidently(user_input, response):
         ])
         
         # Create and run report
+        #report = Report(metrics=[
+        #    DataSummaryPreset(column_name="user_input"),
+        #    DataSummaryPreset(column_name="response")
+        #])
+
         report = Report(metrics=[
-            DataSummaryPreset(column_name="user_input"),
-            DataSummaryPreset(column_name="response")
-        ])
+    DataSummaryPreset()
+])
         
         report.run(reference_data=None, current_data=current_data)
         

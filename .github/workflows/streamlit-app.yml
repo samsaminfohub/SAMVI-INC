@@ -50,35 +50,35 @@ jobs:
         kill $STREAMLIT_PID 2>/dev/null || true
       continue-on-error: true
 
-  docker-build-test:
-    runs-on: ubuntu-latest
+  docker-build-local:
+    runs-on: [self-hosted, windows]
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-
     - name: Build and Start Services
       run: |
-        sudo docker-compose up -d --build
+        docker-compose up -d --build
         
     - name: Wait for Services
       run: |
-        echo "Waiting for services to start..."
-        sleep 30
-        sudo docker-compose ps
+        Write-Host "Waiting for services to start..."
+        Start-Sleep -Seconds 30
+        docker-compose ps
         
     - name: Test App Health
       run: |
-        curl --fail http://localhost:8501/_stcore/health || (docker compose logs app && exit 1)
-        
-    - name: Stop Services
-      if: always()
-      run: sudo docker-compose down
+        $response = Invoke-WebRequest -Uri http://localhost:8501/_stcore/health -UseBasicParsing -ErrorAction SilentlyContinue
+        if ($response.StatusCode -eq 200) {
+          Write-Host "✓ App is running"
+        } else {
+          Write-Host "⚠ Health check failed"
+          docker-compose logs app
+          exit 1
+        }
       
   deploy-info:
-    needs: [test-and-deploy, docker-build-test]
+    needs: [test-and-deploy, docker-build-local]
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     
