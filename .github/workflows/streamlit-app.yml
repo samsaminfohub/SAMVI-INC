@@ -49,9 +49,36 @@ jobs:
         
         kill $STREAMLIT_PID 2>/dev/null || true
       continue-on-error: true
+
+  docker-build-test:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build and Start Services
+      run: |
+        docker-compose up -d --build
+        
+    - name: Wait for Services
+      run: |
+        echo "Waiting for services to start..."
+        sleep 30
+        docker-compose ps
+        
+    - name: Test App Health
+      run: |
+        curl --fail http://localhost:8501/_stcore/health || (docker-compose logs app && exit 1)
+        
+    - name: Stop Services
+      if: always()
+      run: docker-compose down
       
   deploy-info:
-    needs: test-and-deploy
+    needs: [test-and-deploy, docker-build-test]
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     

@@ -22,8 +22,10 @@ import os
 import shutil
 import subprocess
 # from utils.minio_client import MinioHandler # Removed in favor of DVC
-#from evidently.report import Report
-#from evidently.metric_preset import TextEvals
+from evidently import Report
+from evidently.presets import DataSummaryPreset, DataDriftPreset 
+
+#from evidently.ui.workspace import Workspace
 #from evidently.test_suite import TestSuite
 #from evidently.tests import TestNumberOfMissingValues
 import pandas as pd
@@ -218,20 +220,36 @@ def chat_llm(rag_chain, user_input):
 
 def log_to_evidently(user_input, response):
     """Log interactions for Evidently monitoring"""
-    # In a real scenario, you might append this to a CSV or send to a service
-    # For this demo, we'll just ensure the directory exists
-    log_dir = Path("logs")
-    log_dir.mkdir(exist_ok=True)
-    
-    data = {
-        "timestamp": datetime.datetime.now().isoformat(),
-        "user_input": user_input,
-        "response": response
-    }
-    # Append to a JSONL file or similar
-    import json
-    with open(log_dir / "interactions.jsonl", "a") as f:
-        f.write(json.dumps(data) + "\n")
+    try:
+        # Prepare data
+        current_data = pd.DataFrame([
+            {
+                "user_input": user_input,
+                "response": response,
+                "timestamp": datetime.datetime.now()
+            }
+        ])
+        
+        # Create and run report
+        report = Report(metrics=[
+            DataSummaryPreset(column_name="user_input"),
+            DataSummaryPreset(column_name="response")
+        ])
+        
+        report.run(reference_data=None, current_data=current_data)
+        
+        # Save HTML report
+        logs_dir = "logs"
+        os.makedirs(logs_dir, exist_ok=True)
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        file_path = os.path.join(logs_dir, f"evidently_report_{timestamp}.html")
+        report.save_html(file_path)
+        print(f"Successfully saved Evidently report to {file_path}")
+        
+    except Exception as e:
+        print(f"Evidently logging failed: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 # ============================================================================

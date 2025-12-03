@@ -8,6 +8,30 @@ else
     echo "DVC already initialized."
 fi
 
+# Create bucket if it doesn't exist
+echo "Creating MinIO bucket 'documents' if it doesn't exist..."
+python3 -c "
+from minio import Minio
+import os
+
+try:
+    client = Minio(
+        'minio:9000',
+        access_key='minioadmin',
+        secret_key='minioadmin',
+        secure=False
+    )
+
+    bucket_name = 'documents'
+    if not client.bucket_exists(bucket_name):
+        client.make_bucket(bucket_name)
+        print(f'Bucket {bucket_name} created.')
+    else:
+        print(f'Bucket {bucket_name} already exists.')
+except Exception as e:
+    print(f'Error creating bucket: {e}')
+"
+
 # Configure MinIO remote
 echo "Configuring MinIO remote..."
 # We use the 'documents' bucket but a subfolder 'dvc-storage' to avoid cluttering the raw files
