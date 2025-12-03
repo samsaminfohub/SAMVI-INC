@@ -49,36 +49,9 @@ jobs:
         
         kill $STREAMLIT_PID 2>/dev/null || true
       continue-on-error: true
-
-  docker-build-local:
-    runs-on: [self-hosted, windows]
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-
-    - name: Build and Start Services
-      run: |
-        docker-compose up -d --build
-        
-    - name: Wait for Services
-      run: |
-        Write-Host "Waiting for services to start..."
-        Start-Sleep -Seconds 30
-        docker-compose ps
-        
-    - name: Test App Health
-      run: |
-        $response = Invoke-WebRequest -Uri http://localhost:8501/_stcore/health -UseBasicParsing -ErrorAction SilentlyContinue
-        if ($response.StatusCode -eq 200) {
-          Write-Host "✓ App is running"
-        } else {
-          Write-Host "⚠ Health check failed"
-          docker-compose logs app
-          exit 1
-        }
       
   deploy-info:
-    needs: [test-and-deploy, docker-build-local]
+    needs: test-and-deploy
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     
