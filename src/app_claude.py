@@ -24,10 +24,7 @@ import subprocess
 # from utils.minio_client import MinioHandler # Removed in favor of DVC
 from evidently import Report
 from evidently.presets import DataSummaryPreset, DataDriftPreset 
-
-#from evidently.ui.workspace import Workspace
-#from evidently.test_suite import TestSuite
-#from evidently.tests import TestNumberOfMissingValues
+from evidently.ui.workspace import Workspace
 import pandas as pd
 import datetime
 
@@ -226,32 +223,52 @@ def log_to_evidently(user_input, response):
             {
                 "user_input": user_input,
                 "response": response,
-                "timestamp": datetime.datetime.now()
+                "timestamp": datetime.datetime.now().isoformat(),
+                "input_length": len(user_input),
+                "response_length": len(response)
             }
         ])
         
-        # Create and run report
-        #report = Report(metrics=[
-        #    DataSummaryPreset(column_name="user_input"),
-        #    DataSummaryPreset(column_name="response")
-        #])
+        # 2. Log to Evidently Workspace
+        try:
+            workspace_path = "evidently_workspace"
+            os.makedirs(workspace_path, exist_ok=True)
+            
+            ws = Workspace.create(workspace_path)
+            
+            # Create or get project
+            project_name = "Chatbot Monitoring"
+            project = None
+            
+            # Search for existing project
+            search_result = ws.search_project(project_name)
+            if search_result:
+                project = search_result[0]
+            else:
+                project = ws.create_project(project_name)
+            
 
-        report = Report(metrics=[
-    DataSummaryPreset()
-])
-        
-        report.run(reference_data=None, current_data=current_data)
-        
-        # Save HTML report
-        logs_dir = "logs"
-        os.makedirs(logs_dir, exist_ok=True)
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        file_path = os.path.join(logs_dir, f"evidently_report_{timestamp}.html")
-        report.save(file_path)
-        print(f"Successfully saved Evidently report to {file_path}")
-        
+            project.save()
+
+            # Create report
+            report = Report(metrics=[
+                        DataSummaryPreset()
+                        ])
+                        
+            report.run(reference_data=None, current_data=current_data)
+            
+            # Add report to workspace
+            ws.add_report(project.id, report)
+            
+            print(f"Report added to project '{project_name}' in workspace '{workspace_path}'")
+            
+        except Exception as report_error:
+            print(f"Evidently Workspace logging failed: {report_error}")
+            import traceback
+            traceback.print_exc()
+
     except Exception as e:
-        print(f"Evidently logging failed: {e}")
+        print(f"Logging failed completely: {e}")
         import traceback
         traceback.print_exc()
 
@@ -267,69 +284,30 @@ def main():
     
     # Sidebar
     with st.sidebar:
-        st.header("⚙️ Configuration")
+        st.header("⚙️ Clear Chat History")
         
-        # Model selection
-        model_options = {
-            "Claude Sonnet 4 (Recommended)": "claude-sonnet-4-20250514",
-            "Claude Opus 4 (Most Capable)": "claude-opus-4-20250514",
-            "Claude Sonnet 3.5": "claude-3-5-sonnet-20241022"
-        }
-        
-        selected_model = st.selectbox(
-            "Select Claude Model:",
-            options=list(model_options.keys()),
-            index=0
-        )
-        
-        temperature = st.slider(
-            "Temperature (Creativity):",
-            min_value=0.0,
-            max_value=1.0,
-            value=0.7,
-            step=0.1,
-            help="Lower = more focused, Higher = more creative"
-        )
-        
-        st.divider()
         
         # API Key check
-        if not os.getenv("ANTHROPIC_API_KEY"):
-            st.warning("⚠️ ANTHROPIC_API_KEY not found in environment")
-            api_key = st.text_input("Enter your Anthropic API Key:", type="password")
-            if api_key:
-                os.environ["ANTHROPIC_API_KEY"] = api_key
-        else:
-            st.success("✓ API Key configured")
-        
-        st.divider()
-        
+        #if not os.getenv("ANTHROPIC_API_KEY"):
+            #st.warning("⚠️ ANTHROPIC_API_KEY not found in environment")
+            #api_key = st.text_input("Enter your Anthropic API Key:", type="password")
+          #  if api_key:
+            #    os.environ["ANTHROPIC_API_KEY"] = api_key
+        #else:
+            #st.success("✓ API Key configured")
+                
         # Document folder
-        doc_folder = st.text_input("Documents Folder:", value="documents")
+        #doc_folder = st.text_input("Documents Folder:", value="documents")
         
-        if st.button("🔄 Reload Documents"):
-            st.cache_resource.clear()
-            st.rerun()
-        
-        st.divider()
-        
+         #if st.button("🔄 Reload Documents"):
+          #   st.cache_resource.clear()
+           #  st.rerun()
+
         # Clear chat button
         if st.button("🗑️ Clear Chat History"):
             st.session_state.chat_history = []
             st.rerun()
-        
-        st.divider()
-        
-        # Information
-        st.markdown("### 📚 About")
-        st.markdown("""
-        This chatbot uses:
-        - **Claude AI** for intelligent responses
-        - **RAG** (Retrieval Augmented Generation)
-        - **FAISS** for vector search
-        - **HuggingFace** embeddings
-        - **LCEL** (LangChain Expression Language)
-        """)
+                
     
     # Initialize session state
     if "chat_history" not in st.session_state:
@@ -342,7 +320,8 @@ def main():
         st.session_state.llm = None
     
     # Load LLM if not loaded or model changed
-    current_model = model_options[selected_model]
+    current_model = "claude-sonnet-4-20250514"
+    temperature = 0.7
     if st.session_state.llm is None or st.session_state.get("current_model") != current_model:
         with st.spinner("Loading Claude model..."):
             st.session_state.llm = load_llm(current_model, temperature)
@@ -376,7 +355,7 @@ def main():
                 try:
                     # Load retriever if not loaded
                     if st.session_state.retriever is None:
-                        st.session_state.retriever = config_retriever(doc_folder)
+                        st.session_state.retriever = config_retriever("documents")
                     
                     if st.session_state.retriever is None:
                         st.error("Failed to load documents. Please check your documents folder.")
@@ -402,6 +381,7 @@ def main():
                        pip install streamlit faiss-cpu pymupdf python-dotenv sentence-transformers
                        ```
                     """)
+
 
 
 if __name__ == "__main__":
