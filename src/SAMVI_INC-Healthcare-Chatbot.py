@@ -21,7 +21,11 @@ from dotenv import load_dotenv
 import os
 import shutil
 import subprocess
-# from utils.minio_client import MinioHandler # Removed in favor of DVC
+import threading
+from minio import Minio
+from io import BytesIO
+import tempfile
+import PyPDF2
 from evidently import Report
 from evidently.presets import DataSummaryPreset, DataDriftPreset 
 from evidently.ui.workspace import Workspace
@@ -63,50 +67,116 @@ def extract_text_pdf(file_path):
     return content
 
 
-@st.cache_resource
-def config_retriever(folder_path="documents"):
-    """Configure retriever with document indexing using DVC"""
+def config_retriever(folder_path="documents", force_rebuild=False):
+    """Configure retriever - FAST mode: loads existing index, only rebuilds if needed"""
     
-    with st.spinner("Syncing documents with DVC..."):
-        try:
-            # Run DVC pull to get the latest files from MinIO
-            # We assume DVC is already initialized and configured in the container
-            result = subprocess.run(
-                ["dvc", "pull"], 
-                capture_output=True, 
-                text=True, 
-                check=False
-            )
-            if result.returncode == 0:
-                st.success("✓ DVC Pull successful")
-            else:
-                st.warning(f"DVC Pull warning: {result.stderr}")
+    index_path = "index_faiss"
+    
+    # FAST PATH: Load existing FAISS index FIRST (super fast!)
+    if not force_rebuild and Path(index_path).exists() and Path(f"{index_path}/index.faiss").exists():
+        with st.spinner("⚡ Loading existing document index..."):
+            try:
+                embedding_model = "BAAI/bge-large-en-v1.5"
+                embeddings = HuggingFaceEmbeddings(model_name=embedding_model)
                 
-        except FileNotFoundError:
-            st.error("DVC not found. Please ensure dvc is installed.")
+                vectorstore = FAISS.load_local(
+                    index_path, 
+                    embeddings,
+                    allow_dangerous_deserialization=True
+                )
+                
+                retriever = vectorstore.as_retriever(
+                    search_type='mmr',
+                    search_kwargs={'k': 3, 'fetch_k': 4}
+                )
+                
+                st.success("✓ Loaded existing index (instant startup!)")
+                return retriever
+                
+            except Exception as e:
+                st.warning(f"Failed to load index: {e}. Rebuilding from MinIO...")
+       
+    # SLOW PATH: Process PDFs directly from MinIO in memory (no disk writes)
+    with st.spinner("📥 Processing PDFs from MinIO in memory..."):
+        try:
+            # Connect to MinIO
+            minio_endpoint = os.getenv("MINIO_ENDPOINT", "localhost:9000")
+            minio_access = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
+            minio_secret = os.getenv("MINIO_SECRET_KEY", "minioadmin")
+            
+            client = Minio(
+                minio_endpoint,
+                access_key=minio_access,
+                secret_key=minio_secret,
+                secure=False
+            )
+            
+            bucket_name = "documents"
+            
+            # Check if bucket exists
+            if not client.bucket_exists(bucket_name):
+                st.error(f"❌ MinIO bucket '{bucket_name}' does not exist!")
+                return None
+            
+            # Process PDFs in memory - no disk writes!
+            objects = client.list_objects(bucket_name, recursive=True)
+            objects_list = list(objects)  # Convert to list to check count
+            
+            st.info(f"📁 Found {len(objects_list)} file(s) in MinIO bucket '{bucket_name}'")
+            
+            loaded_documents = []
+            pdf_count = 0
+            
+            for obj in objects_list:
+                # Skip .dir files (DVC directory manifests)
+                if obj.object_name.endswith('.dir'):
+                    continue
+                
+                try:
+                    # Download file into memory
+                    response = client.get_object(bucket_name, obj.object_name)
+                    file_bytes = response.read()
+                    
+                    # Check if file is a PDF (by magic bytes: %PDF)
+                    if file_bytes.startswith(b'%PDF'):
+                        # Process PDF in memory with BytesIO
+                        pdf_data = BytesIO(file_bytes)
+                        
+                        # Extract text using PyPDF2
+                        pdf_reader = PyPDF2.PdfReader(pdf_data)
+                        text = ""
+                        for page in pdf_reader.pages:
+                            text += page.extract_text()
+                        
+                        if text.strip():  # Only add if we extracted text
+                            loaded_documents.append(text)
+                            pdf_count += 1
+                            st.write(f"✓ Processed PDF: {obj.object_name} ({len(pdf_reader.pages)} pages)")
+                        else:
+                            st.warning(f"⚠ No text extracted from: {obj.object_name}")
+                    else:
+                        st.write(f"⊘ Skipped non-PDF: {obj.object_name}")
+                        
+                except Exception as e:
+                    st.warning(f"⚠ Failed to process {obj.object_name}: {e}")
+            
+            if pdf_count == 0:
+                st.warning(f"⚠ No valid PDF files found in MinIO bucket '{bucket_name}'")
+                return None
+            
+            st.success(f"✓ Processed {pdf_count} PDF file(s) from MinIO in memory")
+            
         except Exception as e:
-            st.error(f"Error running DVC: {e}")
-
-    with st.spinner("Loading and indexing documents..."):
-        # Load PDF files from local folder (now populated by DVC)
-        docs_path = Path(folder_path)
-        
-        # Create directory if it doesn't exist (DVC might create it, but just in case)
-        docs_path.mkdir(exist_ok=True)
-        
-        pdf_files = [f for f in docs_path.glob("*.pdf")]
-        
-        if not pdf_files:
-            st.warning(f"No PDF files found in {folder_path}. Please add files and run 'dvc add' & 'dvc push'.")
+            st.error(f"❌ MinIO connection error: {e}")
+            st.info("Make sure MinIO is running and accessible")
             return None
-        
-        loaded_documents = [extract_text_pdf(str(pdf)) for pdf in pdf_files]
-        
+
+    with st.spinner("📚 Building document index from extracted text..."):
         if not loaded_documents:
-            st.error("Failed to load documents.")
+            st.error(f"❌ No text extracted from PDFs")
             return None
 
-        # Split documents
+        # Split documents into chunks
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000,
             chunk_overlap=200
@@ -121,7 +191,7 @@ def config_retriever(folder_path="documents"):
         
         # Create vector store
         vectorstore = FAISS.from_texts(chunks, embedding=embeddings)
-        vectorstore.save_local('index_faiss')
+        vectorstore.save_local(index_path)
         
         # Configure retriever
         retriever = vectorstore.as_retriever(
@@ -129,9 +199,35 @@ def config_retriever(folder_path="documents"):
             search_kwargs={'k': 3, 'fetch_k': 4}
         )
         
-        st.success(f"✓ Indexed {len(pdf_files)} documents with {len(chunks)} chunks")
+        st.success(f"✓ Indexed {pdf_count} documents with {len(chunks)} chunks")
+        return retriever
+
+    # FAST PATH: Load existing FAISS index if it exists (super fast!)
+    if not force_rebuild and Path(index_path).exists() and Path(f"{index_path}/index.faiss").exists():
+        with st.spinner("⚡ Loading existing document index (fast mode)..."):
+            try:
+                embedding_model = "BAAI/bge-large-en-v1.5"
+                embeddings = HuggingFaceEmbeddings(model_name=embedding_model)
+                
+                # Load the pre-built FAISS index
+                vectorstore = FAISS.load_local(
+                    index_path, 
+                    embeddings,
+                    allow_dangerous_deserialization=True
+                )
+                
+                # Configure retriever
+                retriever = vectorstore.as_retriever(
+                    search_type='mmr',
+                    search_kwargs={'k': 3, 'fetch_k': 4}
+                )
+                
+                st.success("✓ Document index loaded (instant startup!)")
+                return retriever
+                
+            except Exception as e:
+                st.warning(f"Failed to load existing index: {e}. Rebuilding...")    
         
-    return retriever
 
 
 def format_docs(docs):
@@ -196,6 +292,55 @@ def config_rag_chain(llm, retriever):
     
     return rag_chain
 
+def log_to_evidently(user_input, response):
+    """Background thread function for Evidently logging"""
+    try:
+        # Prepare data
+        current_data = pd.DataFrame([
+            {
+                "user_input": user_input,
+                "response": response,
+                "timestamp": datetime.datetime.now().isoformat(),
+                "input_length": len(user_input),
+                "response_length": len(response)
+            }
+        ])
+        
+        # Log to Evidently Workspace
+        try:
+            workspace_path = "evidently_workspace"
+            os.makedirs(workspace_path, exist_ok=True)
+            
+            ws = Workspace.create(workspace_path)
+            
+            # Create or get project
+            project_name = "Chatbot Monitoring"
+            project = None
+            
+            # Search for existing project
+            search_result = ws.search_project(project_name)
+            if search_result:
+                project = search_result[0]
+            else:
+                project = ws.create_project(project_name)
+                project.description = "Monitoring chatbot interactions"
+            
+            project.save()
+
+            # Create report
+            report = Report(metrics=[DataSummaryPreset()])
+            report.run(reference_data=None, current_data=current_data)
+            
+            # Add report to workspace
+            ws.add_report(project.id, report)
+            
+            print(f"✓ Report added to Evidently project '{project_name}'")
+            
+        except Exception as report_error:
+            print(f"Evidently logging failed: {report_error}")
+
+    except Exception as e:
+        print(f"Logging failed: {e}")
 
 def chat_llm(rag_chain, user_input):
     """Process user input and update chat history"""
@@ -215,62 +360,8 @@ def chat_llm(rag_chain, user_input):
     
     return response
 
-def log_to_evidently(user_input, response):
-    """Log interactions for Evidently monitoring"""
-    try:
-        # Prepare data
-        current_data = pd.DataFrame([
-            {
-                "user_input": user_input,
-                "response": response,
-                "timestamp": datetime.datetime.now().isoformat(),
-                "input_length": len(user_input),
-                "response_length": len(response)
-            }
-        ])
-        
-        # 2. Log to Evidently Workspace
-        try:
-            workspace_path = "evidently_workspace"
-            os.makedirs(workspace_path, exist_ok=True)
-            
-            ws = Workspace.create(workspace_path)
-            
-            # Create or get project
-            project_name = "Chatbot Monitoring"
-            project = None
-            
-            # Search for existing project
-            search_result = ws.search_project(project_name)
-            if search_result:
-                project = search_result[0]
-            else:
-                project = ws.create_project(project_name)
-            
 
-            project.save()
 
-            # Create report
-            report = Report(metrics=[
-                        DataSummaryPreset()
-                        ])
-                        
-            report.run(reference_data=None, current_data=current_data)
-            
-            # Add report to workspace
-            ws.add_report(project.id, report)
-            
-            print(f"Report added to project '{project_name}' in workspace '{workspace_path}'")
-            
-        except Exception as report_error:
-            print(f"Evidently Workspace logging failed: {report_error}")
-            import traceback
-            traceback.print_exc()
-
-    except Exception as e:
-        print(f"Logging failed completely: {e}")
-        import traceback
-        traceback.print_exc()
 
 
 # ============================================================================
@@ -284,7 +375,10 @@ def main():
     
     # Sidebar
     with st.sidebar:
-        st.header("⚙️ Clear Chat History")
+         #st.header("⚙️ Settings")
+        
+        # Force reload documents button
+        # if st.button("🔄 Reload Documents (DVC)"):
         
         
         # API Key check
@@ -307,6 +401,10 @@ def main():
         if st.button("🗑️ Clear Chat History"):
             st.session_state.chat_history = []
             st.rerun()
+
+        #st.session_state.retriever = None
+        #st.cache_resource.clear()
+        #st.rerun()    
                 
     
     # Initialize session state

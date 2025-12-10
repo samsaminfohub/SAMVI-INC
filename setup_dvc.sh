@@ -35,7 +35,7 @@ except Exception as e:
 # Configure MinIO remote
 echo "Configuring MinIO remote..."
 # We use the 'documents' bucket but a subfolder 'dvc-storage' to avoid cluttering the raw files
-dvc remote add -d minio s3://documents/dvc-storage -f
+dvc remote add -d minio s3://documents -f
 
 # Configure endpoint
 # Note: When running inside Docker, use 'http://minio:9000'
@@ -47,5 +47,5 @@ dvc remote modify minio secret_access_key minioadmin
 dvc remote modify minio use_ssl false
 
 echo "DVC configuration complete."
-echo "Remote 'minio' set to 's3://documents/dvc-storage'."
+echo "Remote 'minio' set to 's3://documents'."
 echo "You can now use 'dvc add documents/' to track your documents."

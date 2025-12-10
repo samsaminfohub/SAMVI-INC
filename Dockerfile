@@ -25,4 +25,4 @@ EXPOSE 8501
 HEALTHCHECK CMD curl --fail http://localhost:8501/_stcore/health || exit 1
 
 # Run the application
-CMD ["streamlit", "run", "src/app_claude.py", "--server.port=8501", "--server.address=0.0.0.0"]
+CMD ["streamlit", "run", "src/SAMVI_INC-Healthcare-Chatbot.py", "--server.port=8501", "--server.address=0.0.0.0"]

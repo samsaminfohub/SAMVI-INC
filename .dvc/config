@@ -2,7 +2,7 @@
     no_scm = True
     remote = minio
 ['remote "minio"']
-    url = s3://documents/dvc-storage
+    url = s3://documents
     endpointurl = http://minio:9000
     access_key_id = minioadmin
     secret_access_key = minioadmin

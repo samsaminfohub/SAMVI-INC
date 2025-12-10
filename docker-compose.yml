@@ -12,7 +12,6 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
     volumes:
       - .:/app
-      - ./documents:/app/documents_local # Keep this for clarity, though covered by .:/app
 
   minio:
     image: minio/minio
