@@ -26,8 +26,8 @@ from minio import Minio
 from io import BytesIO
 import tempfile
 import PyPDF2
-from evidently import Report
-from evidently.presets import DataSummaryPreset, DataDriftPreset 
+from evidently.report import Report
+from evidently.metrics import ColumnSummaryMetric, DatasetSummaryMetric
 from evidently.ui.workspace import Workspace
 import pandas as pd
 import datetime
@@ -292,7 +292,7 @@ def config_rag_chain(llm, retriever):
     
     return rag_chain
 
-def log_to_evidently(user_input, response):
+def log_to_evidently(user_input, response, feedback=None):
     """Background thread function for Evidently logging"""
     try:
         # Prepare data
@@ -302,7 +302,8 @@ def log_to_evidently(user_input, response):
                 "response": response,
                 "timestamp": datetime.datetime.now().isoformat(),
                 "input_length": len(user_input),
-                "response_length": len(response)
+                "response_length": len(response),
+                "feedback": feedback if feedback else "no_feedback"
             }
         ])
         
@@ -327,8 +328,15 @@ def log_to_evidently(user_input, response):
             
             project.save()
 
-            # Create report
-            report = Report(metrics=[DataSummaryPreset()])
+            # Create report with metrics that work without reference data
+            report = Report(metrics=[
+                DatasetSummaryMetric(),
+                ColumnSummaryMetric(column_name="user_input"),
+                ColumnSummaryMetric(column_name="response"),
+                ColumnSummaryMetric(column_name="input_length"),
+                ColumnSummaryMetric(column_name="response_length"),
+                ColumnSummaryMetric(column_name="feedback"),
+            ])
             report.run(reference_data=None, current_data=current_data)
             
             # Add report to workspace
@@ -350,12 +358,14 @@ def chat_llm(rag_chain, user_input):
         "input": user_input,
         "chat_history": st.session_state.chat_history
     })
+
+
     
     # Update chat history
     st.session_state.chat_history.append(HumanMessage(content=user_input))
     st.session_state.chat_history.append(AIMessage(content=response))
     
-    # Log to Evidently (Simple logging for now)
+# Log to Evidently (Simple logging for now)
     log_to_evidently(user_input, response)
     
     return response
@@ -417,6 +427,9 @@ def main():
     if "llm" not in st.session_state:
         st.session_state.llm = None
     
+    if "feedback_data" not in st.session_state:
+        st.session_state.feedback_data = {}
+    
     # Load LLM if not loaded or model changed
     current_model = "claude-sonnet-4-20250514"
     temperature = 0.7
@@ -431,10 +444,41 @@ def main():
             st.markdown("Hi! I'm your IT Support assistant. How can I help you today?")
     
     # Display chat history
-    for message in st.session_state.chat_history:
+    for idx, message in enumerate(st.session_state.chat_history):
         if isinstance(message, AIMessage):
             with st.chat_message("assistant", avatar="🤖"):
                 st.markdown(message.content)
+                
+                # Add feedback buttons after each AI response
+                col1, col2, col3 = st.columns([1, 1, 10])
+                
+                with col1:
+                    if st.button("👍", key=f"like_{idx}"):
+                        st.session_state.feedback_data[idx] = "like"
+                        # Re-log to Evidently with feedback
+                        if idx > 0:  # Make sure there's a user message before this
+                            user_msg = st.session_state.chat_history[idx-1].content
+                            log_to_evidently(user_msg, message.content, feedback="like")
+                        st.rerun()
+                
+                with col2:
+                    if st.button("👎", key=f"dislike_{idx}"):
+                        st.session_state.feedback_data[idx] = "dislike"
+                        # Re-log to Evidently with feedback
+                        if idx > 0:  # Make sure there's a user message before this
+                            user_msg = st.session_state.chat_history[idx-1].content
+                            log_to_evidently(user_msg, message.content, feedback="dislike")
+                        st.rerun()
+                
+                with col3:
+                    # Show feedback status
+                    if idx in st.session_state.feedback_data:
+                        feedback = st.session_state.feedback_data[idx]
+                        if feedback == "like":
+                            st.caption("✅ Thanks for your feedback!")
+                        elif feedback == "dislike":
+                            st.caption("✅ Thanks for your feedback!")
+                            
         elif isinstance(message, HumanMessage):
             with st.chat_message("user", avatar="👤"):
                 st.markdown(message.content)
@@ -465,6 +509,9 @@ def main():
                     # Get response
                     response = chat_llm(rag_chain, user_input)
                     st.markdown(response)
+                    
+                    # Trigger rerun to display the message with feedback buttons
+                    st.rerun()
                     
                 except Exception as e:
                     st.error(f"Error: {str(e)}")

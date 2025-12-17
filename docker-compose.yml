@@ -12,6 +12,7 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
     volumes:
       - .:/app
+      - ./evidently_workspace:/app/evidently_workspace
 
   minio:
     image: minio/minio
@@ -39,7 +40,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./evidently_workspace:/app/workspace
+      - ./evidently_workspace:/app/evidently_workspace
 
 volumes:
   minio_data:

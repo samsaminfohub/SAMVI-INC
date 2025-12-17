@@ -29,7 +29,8 @@ typing-extensions>=4.5.0
 
 # Infrastructure & Monitoring
 minio>=7.2.0
-evidently>=0.4.0
+sniffio>=1.3.0
+evidently==0.4.35
 watchdog>=3.0.0
 dvc[s3]>=3.0.0
 #test CI/CD
