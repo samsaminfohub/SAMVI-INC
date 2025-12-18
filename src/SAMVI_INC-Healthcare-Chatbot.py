@@ -35,6 +35,27 @@ import datetime
 # Load environment variables
 load_dotenv()
 
+# ============================================================================
+# LANGUAGE CONFIGURATION
+# ============================================================================
+
+TRANSLATIONS = {
+    "en": {
+        "title": "Healthcare IT Support Chatbot",
+        "welcome": "Hi! I'm your IT Support assistant. How can I help you today?",
+        "clear_chat": "Clear Chat History",
+        "select_language": "Select Language",
+        "powered_by": "Powered by SAMVI-INC For St-Mary's Hospital"
+    },
+    "fr": {
+        "title": "Chatbot de Support IT Santé",
+        "welcome": "Bonjour! Je suis votre assistant de support IT. Comment puis-je vous aider aujourd'hui?",
+        "clear_chat": "Effacer l'historique du chat",
+        "select_language": "Sélectionner la langue",
+        "powered_by": "Propulsé par SAMVI-INC Pour Hôpital de St.Mary"
+    }
+}
+
 # Page configuration
 st.set_page_config(
     page_title="IT Support Chatbot 🏥",
@@ -379,13 +400,62 @@ def chat_llm(rag_chain, user_input):
 # ============================================================================
 
 def main():
+    # Initialize session state for language (before anything else)
+    if "language" not in st.session_state:
+        st.session_state.language = None
+    
+    # Language selection screen (show ONLY if language not selected)
+    if st.session_state.language is None:
+        st.markdown("<h1 style='text-align: center;'>🏥 IT Support Chatbot</h1>", unsafe_allow_html=True)
+        st.markdown("<h3 style='text-align: center;'>Chatbot de Support IT</h3>", unsafe_allow_html=True)
+        st.markdown("---")
+        
+        col1, col2, col3 = st.columns([1, 2, 1])
+        
+        with col2:
+            st.markdown("<h4 style='text-align: center;'>Select Language / Sélectionner la langue</h4>", unsafe_allow_html=True)
+            st.markdown("")
+            
+            col_en, col_fr = st.columns(2)
+            
+            with col_en:
+                if st.button("English", use_container_width=True, type="primary"):
+                    st.session_state.language = "en"
+                    st.rerun()
+            
+            with col_fr:
+                if st.button("Français", use_container_width=True, type="primary"):
+                    st.session_state.language = "fr"
+                    st.rerun()
+        
+        return  # Stop here until language is selected
+    
+    # Get current language translations
+    lang = st.session_state.language
+    t = TRANSLATIONS[lang]
+    
     # Title and description
-    st.title("🏥 Healthcare IT Support Chatbot")
-    st.markdown("*Powered by SAMVI-INC*")
+    st.title(f"🏥 {t['title']}")
+    st.markdown(f"*{t['powered_by']}*")
     
     # Sidebar
     with st.sidebar:
          #st.header("⚙️ Settings")
+        
+        # Language selector in sidebar
+        st.markdown("---")
+        current_lang = st.selectbox(
+            t['select_language'],
+            options=["en", "fr"],
+            index=0 if lang == "en" else 1,
+            format_func=lambda x: "English" if x == "en" else "Français"
+        )
+        
+        if current_lang != st.session_state.language:
+            st.session_state.language = current_lang
+            st.rerun()
+        
+        st.markdown("---")
         
         # Force reload documents button
         # if st.button("🔄 Reload Documents (DVC)"):
@@ -408,7 +478,7 @@ def main():
            #  st.rerun()
 
         # Clear chat button
-        if st.button("🗑️ Clear Chat History"):
+        if st.button(f"🗑️ {t['clear_chat']}"):
             st.session_state.chat_history = []
             st.rerun()
 
@@ -437,11 +507,13 @@ def main():
         with st.spinner("Loading Claude model..."):
             st.session_state.llm = load_llm(current_model, temperature)
             st.session_state.current_model = current_model
+
     
     # Display welcome message if no chat history
     if not st.session_state.chat_history:
         with st.chat_message("assistant", avatar="🤖"):
-            st.markdown("Hi! I'm your IT Support assistant. How can I help you today?")
+            st.markdown(t['welcome'])
+
     
     # Display chat history
     for idx, message in enumerate(st.session_state.chat_history):

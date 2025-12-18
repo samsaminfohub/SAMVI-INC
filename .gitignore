@@ -46,10 +46,6 @@ venv.bak/
 # Jupyter Notebook
 .ipynb_checkpoints
 
-# Vector store indexes
-index_faiss/
-*.faiss
-*.pkl
 
 # Logs
 logs/
