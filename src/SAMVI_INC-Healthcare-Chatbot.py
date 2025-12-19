@@ -45,14 +45,16 @@ TRANSLATIONS = {
         "welcome": "Hi! I'm your IT Support assistant. How can I help you today?",
         "clear_chat": "Clear Chat History",
         "select_language": "Select Language",
-        "powered_by": "Powered by SAMVI-INC For St-Mary's Hospital"
+        "powered_by": "Powered by SAMVI-INC For St-Mary's Hospital",
+        "feedback_thanks": "Thanks for your feedback!"
     },
     "fr": {
         "title": "Chatbot de Support IT Santé",
         "welcome": "Bonjour! Je suis votre assistant de support IT. Comment puis-je vous aider aujourd'hui?",
         "clear_chat": "Effacer l'historique du chat",
         "select_language": "Sélectionner la langue",
-        "powered_by": "Propulsé par SAMVI-INC Pour Hôpital de St.Mary"
+        "powered_by": "Propulsé par SAMVI-INC Pour Hôpital de St.Mary",
+        "feedback_thanks": "Merci pour votre retour!"
     }
 }
 
@@ -547,9 +549,9 @@ def main():
                     if idx in st.session_state.feedback_data:
                         feedback = st.session_state.feedback_data[idx]
                         if feedback == "like":
-                            st.caption("✅ Thanks for your feedback!")
+                            st.caption(f"✅ {t['feedback_thanks']}")
                         elif feedback == "dislike":
-                            st.caption("✅ Thanks for your feedback!")
+                            st.caption(f"✅ {t['feedback_thanks']}")
                             
         elif isinstance(message, HumanMessage):
             with st.chat_message("user", avatar="👤"):
