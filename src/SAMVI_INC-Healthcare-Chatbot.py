@@ -46,7 +46,13 @@ TRANSLATIONS = {
         "clear_chat": "Clear Chat History",
         "select_language": "Select Language",
         "powered_by": "Powered by SAMVI-INC For St-Mary's Hospital",
-        "feedback_thanks": "Thanks for your feedback!"
+        "feedback_thanks": "Thanks for your feedback!",
+        "input_placeholder": "Type your question here...",
+        "thinking": "Thinking...",
+        "loading_index": "⚡ Loading existing document index...",
+        "loaded_index": "✓ Loaded existing index !",
+        "processing_pdfs": "📥 Processing PDFs from MinIO in memory...",
+        "building_index": "📚 Building document index from extracted text..."
     },
     "fr": {
         "title": "Chatbot de Support IT Santé",
@@ -54,7 +60,13 @@ TRANSLATIONS = {
         "clear_chat": "Effacer l'historique du chat",
         "select_language": "Sélectionner la langue",
         "powered_by": "Propulsé par SAMVI-INC Pour Hôpital de St.Mary",
-        "feedback_thanks": "Merci pour votre retour!"
+        "feedback_thanks": "Merci pour votre retour!",
+        "input_placeholder": "Tapez votre question ici...",
+        "thinking": "Réflexion...",
+        "loading_index": "⚡ Chargement de l'index de documents existant...",
+        "loaded_index": "✓ Index existant chargé !",
+        "processing_pdfs": "📥 Traitement des PDFs depuis MinIO en mémoire...",
+        "building_index": "📚 Construction de l'index de documents à partir du texte extrait..."
     }
 }
 
@@ -90,14 +102,17 @@ def extract_text_pdf(file_path):
     return content
 
 
-def config_retriever(folder_path="documents", force_rebuild=False):
+def config_retriever(folder_path="documents", force_rebuild=False, language="en"):
     """Configure retriever - FAST mode: loads existing index, only rebuilds if needed"""
+    
+    # Get translations
+    t = TRANSLATIONS[language]
     
     index_path = "index_faiss"
     
     # FAST PATH: Load existing FAISS index FIRST (super fast!)
     if not force_rebuild and Path(index_path).exists() and Path(f"{index_path}/index.faiss").exists():
-        with st.spinner("⚡ Loading existing document index..."):
+        with st.spinner(t['loading_index']):
             try:
                 embedding_model = "BAAI/bge-large-en-v1.5"
                 embeddings = HuggingFaceEmbeddings(model_name=embedding_model)
@@ -113,14 +128,15 @@ def config_retriever(folder_path="documents", force_rebuild=False):
                     search_kwargs={'k': 3, 'fetch_k': 4}
                 )
                 
-                st.success("✓ Loaded existing index (instant startup!)")
+                st.success(t['loaded_index'])
                 return retriever
+
                 
             except Exception as e:
                 st.warning(f"Failed to load index: {e}. Rebuilding from MinIO...")
        
     # SLOW PATH: Process PDFs directly from MinIO in memory (no disk writes)
-    with st.spinner("📥 Processing PDFs from MinIO in memory..."):
+    with st.spinner(t['processing_pdfs']):
         try:
             # Connect to MinIO
             minio_endpoint = os.getenv("MINIO_ENDPOINT", "localhost:9000")
@@ -194,7 +210,7 @@ def config_retriever(folder_path="documents", force_rebuild=False):
             st.info("Make sure MinIO is running and accessible")
             return None
 
-    with st.spinner("📚 Building document index from extracted text..."):
+    with st.spinner(t['building_index']):
         if not loaded_documents:
             st.error(f"❌ No text extracted from PDFs")
             return None
@@ -223,34 +239,7 @@ def config_retriever(folder_path="documents", force_rebuild=False):
         )
         
         st.success(f"✓ Indexed {pdf_count} documents with {len(chunks)} chunks")
-        return retriever
-
-    # FAST PATH: Load existing FAISS index if it exists (super fast!)
-    if not force_rebuild and Path(index_path).exists() and Path(f"{index_path}/index.faiss").exists():
-        with st.spinner("⚡ Loading existing document index (fast mode)..."):
-            try:
-                embedding_model = "BAAI/bge-large-en-v1.5"
-                embeddings = HuggingFaceEmbeddings(model_name=embedding_model)
-                
-                # Load the pre-built FAISS index
-                vectorstore = FAISS.load_local(
-                    index_path, 
-                    embeddings,
-                    allow_dangerous_deserialization=True
-                )
-                
-                # Configure retriever
-                retriever = vectorstore.as_retriever(
-                    search_type='mmr',
-                    search_kwargs={'k': 3, 'fetch_k': 4}
-                )
-                
-                st.success("✓ Document index loaded (instant startup!)")
-                return retriever
-                
-            except Exception as e:
-                st.warning(f"Failed to load existing index: {e}. Rebuilding...")    
-        
+        return retriever        
 
 
 def format_docs(docs):
@@ -258,8 +247,14 @@ def format_docs(docs):
     return "\n\n".join([doc.page_content for doc in docs])
 
 
-def config_rag_chain(llm, retriever):
+def config_rag_chain(llm, retriever, language="en"):
     """Configure RAG chain using LCEL (LangChain Expression Language)"""
+    
+    # Language-specific instructions
+    language_instructions = {
+        "en": "Answer all questions in English.",
+        "fr": "Répondez à toutes les questions en français. Même si le contexte est en anglais, traduisez et répondez en français."
+    }
     
     # Contextualization prompt - reformulates question based on chat history
     contextualize_q_system_prompt = """Given a chat history and the latest user question 
@@ -273,17 +268,20 @@ def config_rag_chain(llm, retriever):
         ("human", "{input}"),
     ])
     
-    # Q&A system prompt
-    qa_system_prompt = """You are a helpful IT Support virtual assistant for a healthcare organization.
+    # Q&A system prompt with language instruction
+    qa_system_prompt = f"""You are a helpful IT Support virtual assistant for a healthcare organization.
     You provide accurate, concise answers to IT support questions.
+    
+    IMPORTANT: {language_instructions.get(language, language_instructions["en"])}
     
     Use the following context to answer questions:
     - If the answer is in the context, provide a clear and helpful response
     - If you don't know the answer, say so honestly and suggest contacting IT support directly
     - Keep your answers professional, concise, and actionable
     - For healthcare IT systems, prioritize security and compliance in your guidance
+    - The context documents may be in English, but translate your response to match the language instruction above
     
-    Context: {context}
+    Context: {{context}}
     """
     
     qa_prompt = ChatPromptTemplate.from_messages([
@@ -314,6 +312,7 @@ def config_rag_chain(llm, retriever):
     )
     
     return rag_chain
+
 
 def log_to_evidently(user_input, response, feedback=None):
     """Background thread function for Evidently logging"""
@@ -455,7 +454,10 @@ def main():
         
         if current_lang != st.session_state.language:
             st.session_state.language = current_lang
+            st.session_state.chat_history = []  # Clear chat history when changing language
+            st.session_state.feedback_data = {}  # Clear feedback data when changing language
             st.rerun()
+
         
         st.markdown("---")
         
@@ -481,7 +483,8 @@ def main():
 
         # Clear chat button
         if st.button(f"🗑️ {t['clear_chat']}"):
-            st.session_state.chat_history = []
+            st.session_state.chat_history = []  # Clear chat history
+            st.session_state.feedback_data = {}  # Clear feedback data
             st.rerun()
 
         #st.session_state.retriever = None
@@ -526,8 +529,11 @@ def main():
                 # Add feedback buttons after each AI response
                 col1, col2, col3 = st.columns([1, 1, 10])
                 
+                # Check if feedback has been given for this message
+                has_feedback = idx in st.session_state.feedback_data
+                
                 with col1:
-                    if st.button("👍", key=f"like_{idx}"):
+                    if st.button("👍", key=f"like_{idx}", disabled=has_feedback):
                         st.session_state.feedback_data[idx] = "like"
                         # Re-log to Evidently with feedback
                         if idx > 0:  # Make sure there's a user message before this
@@ -536,7 +542,7 @@ def main():
                         st.rerun()
                 
                 with col2:
-                    if st.button("👎", key=f"dislike_{idx}"):
+                    if st.button("👎", key=f"dislike_{idx}", disabled=has_feedback):
                         st.session_state.feedback_data[idx] = "dislike"
                         # Re-log to Evidently with feedback
                         if idx > 0:  # Make sure there's a user message before this
@@ -545,20 +551,18 @@ def main():
                         st.rerun()
                 
                 with col3:
-                    # Show feedback status
-                    if idx in st.session_state.feedback_data:
-                        feedback = st.session_state.feedback_data[idx]
-                        if feedback == "like":
-                            st.caption(f"✅ {t['feedback_thanks']}")
-                        elif feedback == "dislike":
-                            st.caption(f"✅ {t['feedback_thanks']}")
+                    # Show feedback status ONLY if feedback was given
+                    if has_feedback:
+                        st.caption(f"✅ {t['feedback_thanks']}")
+
                             
         elif isinstance(message, HumanMessage):
             with st.chat_message("user", avatar="👤"):
                 st.markdown(message.content)
     
     # Chat input
-    user_input = st.chat_input("Type your question here...")
+    user_input = st.chat_input(t['input_placeholder'])
+
     
     if user_input:
         # Display user message
@@ -567,18 +571,20 @@ def main():
         
         # Get response
         with st.chat_message("assistant", avatar="🤖"):
-            with st.spinner("Thinking..."):
+            with st.spinner(t['thinking']):
                 try:
                     # Load retriever if not loaded
                     if st.session_state.retriever is None:
-                        st.session_state.retriever = config_retriever("documents")
+                        st.session_state.retriever = config_retriever("documents", language=lang)
+
                     
                     if st.session_state.retriever is None:
                         st.error("Failed to load documents. Please check your documents folder.")
                         return
                     
                     # Configure RAG chain
-                    rag_chain = config_rag_chain(st.session_state.llm, st.session_state.retriever)
+                    rag_chain = config_rag_chain(st.session_state.llm, st.session_state.retriever, lang)
+
                     
                     # Get response
                     response = chat_llm(rag_chain, user_input)
